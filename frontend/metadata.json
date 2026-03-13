@@ -1,0 +1,5 @@
+{
+  "name": "TalentMatch AI",
+  "description": "Analyze candidate profiles against job descriptions using AI to find the perfect fit.",
+  "requestFramePermissions": []
+}
