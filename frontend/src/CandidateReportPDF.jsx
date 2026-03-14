@@ -139,8 +139,6 @@ export function CandidateReportPDF({ result }) {
           </View>
         )}
 
-  
-
       </Page>
     </Document>
   );

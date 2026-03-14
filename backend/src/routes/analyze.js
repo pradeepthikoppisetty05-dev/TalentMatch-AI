@@ -1,11 +1,12 @@
 import { Router } from "express";
 import { analyzeCandidate } from "./services/geminiService.js";
+import { authenticate } from "../middleware/authenticate.js";
 
 const router = Router();
 
 // POST /api/analyze
 // Body: { jd: string, resume: string }
-router.post("/analyze", async (req, res) => {
+router.post("/analyze", authenticate, async (req, res) => {
   const { jd, resume } = req.body;
 
   if (!jd?.trim() || !resume?.trim()) {

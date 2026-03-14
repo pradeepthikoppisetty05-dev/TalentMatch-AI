@@ -1,7 +1,4 @@
-// ─── Frontend API Client ──────────────────────────────────────────────────────
-// The Gemini SDK and API key live entirely on the backend.
-// This file is the only place the frontend talks to the server.
-
+import { getToken } from "./authService";
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3001";
 
 /**
@@ -11,9 +8,14 @@ const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3001";
  * @returns {Promise<object>}
  */
 export async function analyzeCandidate(jd, resume) {
+  const token = getToken();
+  
   const response = await fetch(`${API_BASE}/api/analyze`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
     body: JSON.stringify({ jd, resume }),
   });
 

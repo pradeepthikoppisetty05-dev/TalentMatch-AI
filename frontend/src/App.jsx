@@ -19,15 +19,18 @@ import {
   Download,
   MessageSquare,
   Star,
+  LogOut,
   Plus,
   Trash2,
   Briefcase,
   Award,
+  ChevronDown
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import Markdown from "react-markdown";
 import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { useAuth } from "./context/AuthContext.jsx";
 import { analyzeCandidate } from "./services/geminiService.js";
 import * as pdfjs from "pdfjs-dist";
 import mammoth from "mammoth";
@@ -72,6 +75,9 @@ React, TypeScript, JavaScript (ES6+), Tailwind CSS, Redux, Jest, Git, Webpack.
 `;
 
 export default function App() {
+  const { user, logout } = useAuth();
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  
   const [jd, setJd] = useState("");
   const [resume, setResume] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -185,6 +191,10 @@ export default function App() {
     ]);
   };
 
+  const initials = user?.name
+    ? user.name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)
+    : "?";
+
 
   const averageInterviewRating =
     interviewQuestions.length > 0
@@ -237,6 +247,45 @@ export default function App() {
                 </PDFDownloadLink>
               </button>
             )}
+            {/* User menu */}
+            <div className="relative">
+              <button
+                onClick={() => setShowUserMenu(!showUserMenu)}
+                className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-slate-50 transition-all border border-transparent hover:border-slate-200"
+              >
+                <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-violet-600 rounded-lg flex items-center justify-center text-white text-xs font-black">
+                  {initials}
+                </div>
+                <span className="hidden sm:block text-sm font-semibold text-slate-700 max-w-[120px] truncate">
+                  {user?.name}
+                </span>
+                <ChevronDown className={cn("w-4 h-4 text-slate-400 transition-transform", showUserMenu && "rotate-180")} />
+              </button>
+
+              <AnimatePresence>
+                {showUserMenu && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 8, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 8, scale: 0.95 }}
+                    transition={{ duration: 0.15 }}
+                    className="absolute right-0 mt-2 w-56 bg-white rounded-2xl shadow-xl shadow-slate-200/60 border border-slate-100 p-2 z-50"
+                  >
+                    <div className="px-3 py-2 mb-1 border-b border-slate-100">
+                      <p className="text-xs font-bold text-slate-900 truncate">{user?.name}</p>
+                      <p className="text-[10px] text-slate-400 truncate">{user?.email}</p>
+                    </div>
+                    <button
+                      onClick={() => { setShowUserMenu(false); logout(); }}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50 rounded-xl transition-all"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      Sign Out
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
           </div>
         </div>
       </header>
