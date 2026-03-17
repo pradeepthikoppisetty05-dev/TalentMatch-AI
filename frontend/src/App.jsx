@@ -1,7 +1,5 @@
-import { useState, useRef, Suspense, lazy} from "react";
-import { PDFDownloadLink } from "@react-pdf/renderer";
-import { CandidateReportPDF } from "./CandidateReportPDF.jsx";
-
+import { useState, useRef } from "react";
+import { downloadReport } from "./services/reportService.js";
 import {
   FileText,
   User,
@@ -19,23 +17,22 @@ import {
   Download,
   MessageSquare,
   Star,
-  LogOut,
   Plus,
   Trash2,
   Briefcase,
   Award,
-  ChevronDown
+  LogOut,
+  ChevronDown,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import Markdown from "react-markdown";
 import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
-import { useAuth } from "./context/AuthContext.jsx";
 import { analyzeCandidate } from "./services/geminiService.js";
+import { useAuth } from "./context/AuthContext.jsx";
 import * as pdfjs from "pdfjs-dist";
 import mammoth from "mammoth";
 
-// Configure PDF.js worker
 pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`;
 
 function cn(...inputs) {
@@ -77,7 +74,7 @@ React, TypeScript, JavaScript (ES6+), Tailwind CSS, Redux, Jest, Git, Webpack.
 export default function App() {
   const { user, logout } = useAuth();
   const [showUserMenu, setShowUserMenu] = useState(false);
-  
+
   const [jd, setJd] = useState("");
   const [resume, setResume] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -85,13 +82,15 @@ export default function App() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [fileName, setFileName] = useState(null);
+  const [resumeFile, setResumeFile] = useState(null); 
+  const [isDownloading, setIsDownloading] = useState(false);
   const [activeTab, setActiveTab] = useState("analysis");
   const [interviewQuestions, setInterviewQuestions] = useState([]);
   const [newQuestion, setNewQuestion] = useState("");
 
   const fileInputRef = useRef(null);
 
-  // ── Analysis ────────────────────────────────────────────────────────────────
+  // Analysis
   const handleAnalyze = async () => {
     if (!jd || !resume) {
       setError("Please provide both a job description and a candidate profile.");
@@ -102,23 +101,23 @@ export default function App() {
     try {
       const analysis = await analyzeCandidate(jd, resume);
       setResult(analysis);
-      const aiQuestions = analysis.suggestedQuestions.map((q) => ({
-        id: Math.random().toString(36).substr(2, 9),
-        question: `[${q.category}] ${q.question}`,
-        answer: "",
-        rating: 0,
-      }));
-      setInterviewQuestions(aiQuestions);
+      setInterviewQuestions(
+        analysis.suggestedQuestions.map((q) => ({
+          id: Math.random().toString(36).substr(2, 9),
+          question: `[${q.category}] ${q.question}`,
+          answer: "",
+          rating: 0,
+        }))
+      );
       setActiveTab("analysis");
     } catch (err) {
-      console.error(err);
       setError(err.message || "Analysis failed. Please check your inputs and try again.");
     } finally {
       setIsAnalyzing(false);
     }
   };
 
-  // ── File Upload ─────────────────────────────────────────────────────────────
+  // File Upload 
   const extractTextFromPdf = async (arrayBuffer) => {
     const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
     let fullText = "";
@@ -134,6 +133,7 @@ export default function App() {
     const file = e.target.files?.[0];
     if (!file) return;
     setFileName(file.name);
+    setResumeFile(file); 
     setIsExtracting(true);
     setError(null);
     try {
@@ -163,7 +163,7 @@ export default function App() {
     }
   };
 
-  // ── Interview Scorecard ─────────────────────────────────────────────────────
+  // Interview Scorecard
   const addQuestion = () => {
     if (!newQuestion.trim()) return;
     setInterviewQuestions([
@@ -179,49 +179,59 @@ export default function App() {
   const removeQuestion = (id) =>
     setInterviewQuestions(interviewQuestions.filter((q) => q.id !== id));
 
-  const clearResume = () => { setResume(""); setFileName(null); };
+  const clearResume = () => { setResume(""); setFileName(null); setResumeFile(null); };
 
   const loadSamples = () => {
     setJd(SAMPLE_JD);
     setResume(SAMPLE_RESUME);
     setFileName("Alex_Rivera_Resume.pdf");
     setInterviewQuestions([
-      { id: "1", question: "Tell me about a complex React architectural decision you led.", answer: "I led the migration to a micro-frontend architecture which improved team autonomy...", rating: 5 },
-      { id: "2", question: "How do you handle performance bottlenecks in large applications?", answer: "I use profiling tools to identify slow renders and implement memoization where necessary...", rating: 4 },
+      { id: "1", question: "Tell me about a complex React architectural decision you led.", answer: "I led the migration to a micro-frontend architecture...", rating: 5 },
+      { id: "2", question: "How do you handle performance bottlenecks in large applications?", answer: "I use profiling tools to identify slow renders...", rating: 4 },
     ]);
   };
-
-  const initials = user?.name
-    ? user.name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)
-    : "?";
-
 
   const averageInterviewRating =
     interviewQuestions.length > 0
       ? (interviewQuestions.reduce((acc, q) => acc + q.rating, 0) / interviewQuestions.length).toFixed(1)
       : "0.0";
 
-  const resultWithInterviewData = {
-    ...result,
+  // Download Report
+  const handleDownloadReport = async () => {
+    if (!result) return;
+    setIsDownloading(true);
+    setError(null);
+    try {
+      const fileToSend = resumeFile
+        ? resumeFile
+        : new File([resume], "resume.txt", { type: "text/plain" });
 
-    // Generated questions from AI
-    suggestedQuestions: (result?.suggestedQuestions || []).map(q => ({
-      ...q,
-      answer: q.answer || "",
-      rating: q.rating || null
-    })),
+      const jobTitle = jd.split("\n").find((l) => l.trim())?.trim() ?? "";
 
-    // Custom questions from interviewer
-    customQuestions: interviewQuestions || [],
-    averageRating: averageInterviewRating
+      await downloadReport(
+        result,
+        interviewQuestions,
+        fileToSend,
+        user?.name ?? "",
+        jobTitle
+      );
+    } catch (err) {
+      setError(err.message || "Failed to generate report. Please try again.");
+    } finally {
+      setIsDownloading(false);
+    }
   };
-  // ── Render ──────────────────────────────────────────────────────────────────
+
+  const initials = user?.name
+    ? user.name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)
+    : "?";
+
   return (
     <div className="min-h-screen bg-[#F3F4F6] text-slate-900 font-sans selection:bg-indigo-100">
 
       {/* ── Header ── */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
-        <div className="w-full px-6 h-16  flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-200">
               <Sparkles className="text-white w-6 h-6" />
@@ -231,6 +241,7 @@ export default function App() {
               <span className="text-[10px] font-bold uppercase tracking-widest text-indigo-600">Premium Talent Analytics</span>
             </div>
           </div>
+
           <div className="flex items-center gap-4">
             <button
               onClick={loadSamples}
@@ -239,14 +250,25 @@ export default function App() {
               <ClipboardList className="w-4 h-4" />
               Demo Data
             </button>
+
             {result && (
-              <button className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-semibold hover:bg-slate-800 transition-all shadow-md active:scale-95">
-                <Download className="w-4 h-4" />
-                <PDFDownloadLink document={<CandidateReportPDF result={resultWithInterviewData} />} fileName="candidate_report.pdf">
-                  {({ loading }) => (loading ? "Generating PDF..." : "Download Report")}
-                </PDFDownloadLink>
+              <button
+                onClick={handleDownloadReport}
+                disabled={isDownloading}
+                className={cn(
+                  "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all shadow-md",
+                  isDownloading
+                    ? "bg-slate-400 text-white cursor-not-allowed"
+                    : "bg-slate-900 text-white hover:bg-slate-800 active:scale-95"
+                )}
+              >
+                {isDownloading
+                  ? <><Loader2 className="w-4 h-4 animate-spin" /> Building PDF...</>
+                  : <><Download className="w-4 h-4" /> Download Report</>
+                }
               </button>
             )}
+
             {/* User menu */}
             <div className="relative">
               <button
@@ -290,13 +312,17 @@ export default function App() {
         </div>
       </header>
 
-      <main className="w-full px-6 py-6">
+      {/* Click outside to close user menu */}
+      {showUserMenu && (
+        <div className="fixed inset-0 z-20" onClick={() => setShowUserMenu(false)} />
+      )}
+
+      <main className="max-w-7xl mx-auto px-4 py-8">
         <div className="grid lg:grid-cols-12 gap-8">
 
           {/* ── Left: Inputs ── */}
           <div className="lg:col-span-5 space-y-6">
 
-            {/* Job Description */}
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden transition-all hover:shadow-md">
               <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex items-center gap-2">
                 <div className="p-1.5 bg-indigo-100 rounded-md text-indigo-600">
@@ -312,7 +338,6 @@ export default function App() {
               />
             </div>
 
-            {/* Candidate Profile */}
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden transition-all hover:shadow-md">
               <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -352,7 +377,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Analyze Button */}
             <button
               onClick={handleAnalyze}
               disabled={isAnalyzing || isExtracting}
@@ -384,8 +408,6 @@ export default function App() {
 
           {/* ── Right: Results ── */}
           <div className="lg:col-span-7 space-y-6">
-
-            {/* Tab switcher */}
             {result && (
               <div className="flex p-1 bg-white rounded-xl border border-slate-200 shadow-sm mb-6">
                 <button
@@ -410,12 +432,8 @@ export default function App() {
             )}
 
             <AnimatePresence mode="wait">
-
-              {/* Empty state */}
               {!result && !isAnalyzing && (
-                <motion.div
-                  key="empty"
-                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                   className="h-[600px] flex flex-col items-center justify-center text-center p-12 border-2 border-dashed border-slate-300 rounded-3xl bg-white/50"
                 >
                   <div className="w-20 h-20 bg-white rounded-2xl flex items-center justify-center shadow-xl mb-6 border border-slate-100">
@@ -428,11 +446,8 @@ export default function App() {
                 </motion.div>
               )}
 
-              {/* Loading state */}
               {isAnalyzing && (
-                <motion.div
-                  key="loading"
-                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                   className="h-[600px] flex flex-col items-center justify-center p-12 space-y-8 bg-white rounded-3xl border border-slate-200"
                 >
                   <div className="relative">
@@ -449,13 +464,8 @@ export default function App() {
                 </motion.div>
               )}
 
-              {/* Analysis tab */}
               {result && activeTab === "analysis" && (
-                <motion.div
-                  key="analysis-tab"
-                  initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
-                  className="space-y-6"
-                >
+                <motion.div key="analysis-tab" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
                   {/* Score Card */}
                   <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm flex items-center justify-between overflow-hidden relative">
                     <div className="absolute top-0 left-0 w-2 h-full bg-indigo-600" />
@@ -463,11 +473,9 @@ export default function App() {
                       <h3 className="text-slate-400 text-[10px] font-bold uppercase tracking-widest">AI Match Confidence</h3>
                       <div className="flex items-baseline gap-3 mt-2">
                         <span className="text-6xl font-black text-slate-900 tracking-tighter">{result.matchScore}%</span>
-                        <div className={cn(
-                          "text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-widest",
+                        <div className={cn("text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-widest",
                           result.matchScore >= 80 ? "bg-emerald-100 text-emerald-700" :
-                          result.matchScore >= 60 ? "bg-amber-100 text-amber-700" :
-                          "bg-red-100 text-red-700"
+                          result.matchScore >= 60 ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"
                         )}>
                           {result.matchScore >= 80 ? "Exceptional" : result.matchScore >= 60 ? "Qualified" : "Requires Review"}
                         </div>
@@ -476,12 +484,9 @@ export default function App() {
                     <div className="w-28 h-28 relative hidden sm:block">
                       <svg className="w-full h-full transform -rotate-90">
                         <circle cx="56" cy="56" r="48" stroke="currentColor" strokeWidth="10" fill="transparent" className="text-slate-100" />
-                        <circle
-                          cx="56" cy="56" r="48" stroke="currentColor" strokeWidth="10" fill="transparent"
-                          strokeDasharray={301.6}
-                          strokeDashoffset={301.6 - (301.6 * result.matchScore) / 100}
-                          className="text-indigo-600 transition-all duration-1000 ease-out"
-                          strokeLinecap="round"
+                        <circle cx="56" cy="56" r="48" stroke="currentColor" strokeWidth="10" fill="transparent"
+                          strokeDasharray={301.6} strokeDashoffset={301.6 - (301.6 * result.matchScore) / 100}
+                          className="text-indigo-600 transition-all duration-1000 ease-out" strokeLinecap="round"
                         />
                       </svg>
                       <div className="absolute inset-0 flex items-center justify-center">
@@ -550,12 +555,10 @@ export default function App() {
                             <tr key={i} className="hover:bg-slate-50/50 transition-colors">
                               <td className="px-8 py-5 text-sm font-bold text-slate-700">{skill.skill}</td>
                               <td className="px-8 py-5">
-                                <span className={cn(
-                                  "text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-widest inline-block",
+                                <span className={cn("text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-widest inline-block",
                                   skill.level === "High" ? "bg-emerald-100 text-emerald-700" :
                                   skill.level === "Medium" ? "bg-blue-100 text-blue-700" :
-                                  skill.level === "Low" ? "bg-amber-100 text-amber-700" :
-                                  "bg-slate-100 text-slate-500"
+                                  skill.level === "Low" ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-500"
                                 )}>
                                   {skill.level}
                                 </span>
@@ -588,13 +591,8 @@ export default function App() {
                 </motion.div>
               )}
 
-              {/* Interview tab */}
               {result && activeTab === "interview" && (
-                <motion.div
-                  key="interview-tab"
-                  initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
-                  className="space-y-6"
-                >
+                <motion.div key="interview-tab" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
                   <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
                     <div className="flex items-center justify-between mb-8">
                       <div className="flex items-center gap-3">
@@ -613,10 +611,8 @@ export default function App() {
                     <div className="space-y-6">
                       {interviewQuestions.map((q) => (
                         <div key={q.id} className="p-6 bg-slate-50 rounded-2xl border border-slate-100 group relative">
-                          <button
-                            onClick={() => removeQuestion(q.id)}
-                            className="absolute top-4 right-4 p-1.5 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
-                          >
+                          <button onClick={() => removeQuestion(q.id)}
+                            className="absolute top-4 right-4 p-1.5 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all">
                             <Trash2 className="w-4 h-4" />
                           </button>
                           <div className="space-y-4">
@@ -626,9 +622,7 @@ export default function App() {
                             </div>
                             <div>
                               <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 block mb-2">Candidate Answer</label>
-                              <textarea
-                                value={q.answer}
-                                onChange={(e) => updateQuestion(q.id, { answer: e.target.value })}
+                              <textarea value={q.answer} onChange={(e) => updateQuestion(q.id, { answer: e.target.value })}
                                 placeholder="Record candidate's response..."
                                 className="w-full p-4 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none min-h-[100px] resize-none"
                               />
@@ -637,11 +631,8 @@ export default function App() {
                               <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Response Rating</label>
                               <div className="flex gap-1">
                                 {[1, 2, 3, 4, 5].map((star) => (
-                                  <button
-                                    key={star}
-                                    onClick={() => updateQuestion(q.id, { rating: star })}
-                                    className={cn("p-1 transition-all", q.rating >= star ? "text-amber-400 scale-110" : "text-slate-200 hover:text-amber-200")}
-                                  >
+                                  <button key={star} onClick={() => updateQuestion(q.id, { rating: star })}
+                                    className={cn("p-1 transition-all", q.rating >= star ? "text-amber-400 scale-110" : "text-slate-200 hover:text-amber-200")}>
                                     <Star className={cn("w-6 h-6", q.rating >= star ? "fill-current" : "")} />
                                   </button>
                                 ))}
@@ -653,18 +644,13 @@ export default function App() {
 
                       <div className="pt-4 border-t border-slate-100">
                         <div className="flex gap-3">
-                          <input
-                            type="text"
-                            value={newQuestion}
-                            onChange={(e) => setNewQuestion(e.target.value)}
+                          <input type="text" value={newQuestion} onChange={(e) => setNewQuestion(e.target.value)}
                             onKeyPress={(e) => e.key === "Enter" && addQuestion()}
                             placeholder="Add a custom interview question..."
                             className="flex-1 p-4 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                           />
-                          <button
-                            onClick={addQuestion}
-                            className="p-4 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95"
-                          >
+                          <button onClick={addQuestion}
+                            className="p-4 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95">
                             <Plus className="w-5 h-5" />
                           </button>
                         </div>
@@ -673,13 +659,11 @@ export default function App() {
                   </div>
                 </motion.div>
               )}
-
             </AnimatePresence>
           </div>
         </div>
       </main>
 
-      {/* ── Footer ── */}
       <footer className="max-w-7xl mx-auto px-4 py-12 border-t border-slate-200 mt-12">
         <div className="flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-3 opacity-50 grayscale hover:grayscale-0 transition-all cursor-default">

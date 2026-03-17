@@ -4,12 +4,12 @@ import cors from "cors";
 import authRouter from "./routes/auth.js";
 import { testConnection } from "./db/tempconnection.js";
 import analyzeRouter from "./routes/analyze.js";
+import reportRouter from "./routes/report.js";
 
-// Validate required env vars on startup
 const required = ["GEMINI_API_KEY", "JWT_SECRET"];
 const missing = required.filter((k) => !process.env[k]);
 if (missing.length) {
-  console.error(`❌  Missing required env vars: ${missing.join(", ")}`);
+  console.error(`  Missing required env vars: ${missing.join(", ")}`);
   console.error("    Copy backend/.env.example → backend/.env and fill in values.");
   process.exit(1);
 }
@@ -31,6 +31,7 @@ app.use(express.json({ limit: "2mb" }));
 // Routes
 app.use("/api/auth", authRouter); 
 app.use("/api", analyzeRouter);
+app.use("/api", reportRouter);
 
 // Health check
 app.get("/health", (_req, res) =>

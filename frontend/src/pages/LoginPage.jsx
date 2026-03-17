@@ -24,7 +24,6 @@ export default function LoginPage({ onSwitchToRegister }) {
     setError(null);
     try {
       await login(email, password);
-      // AuthContext sets user → App re-renders to main view automatically
     } catch (err) {
       setError(err.message || "Login failed. Please try again.");
     } finally {

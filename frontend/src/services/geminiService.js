@@ -2,7 +2,6 @@ import { getToken } from "./authService";
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3001";
 
 /**
- * Sends JD + resume to the backend and returns the AnalysisResult.
  * @param {string} jd
  * @param {string} resume
  * @returns {Promise<object>}

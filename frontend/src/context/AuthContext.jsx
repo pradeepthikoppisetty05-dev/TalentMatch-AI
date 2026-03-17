@@ -5,9 +5,8 @@ const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true); // restoring session on mount
+  const [loading, setLoading] = useState(true);
 
-  // Restore session from stored token on first load
   useEffect(() => {
     async function restoreSession() {
       if (!getToken()) {
@@ -18,7 +17,6 @@ export function AuthProvider({ children }) {
         const data = await getMe();
         setUser(data.user);
       } catch {
-        // Token is invalid or expired — clear it silently
         apiLogout();
       } finally {
         setLoading(false);
@@ -51,7 +49,6 @@ export function AuthProvider({ children }) {
   );
 }
 
-// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth() {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error("useAuth must be used inside <AuthProvider>");

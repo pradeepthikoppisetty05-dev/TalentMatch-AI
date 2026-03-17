@@ -6,7 +6,7 @@ import { authenticate } from "../middleware/authenticate.js";
 
 const router = Router();
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// Helpers
 
 function generateToken(user) {
   return jwt.sign(
@@ -20,12 +20,10 @@ function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
-// ── POST /api/auth/register ───────────────────────────────────────────────────
 
 router.post("/register", async (req, res) => {
   const { name, email, password } = req.body;
 
-  // Validation
   if (!name?.trim() || !email?.trim() || !password) {
     return res.status(400).json({ error: "Name, email, and password are required." });
   }
@@ -43,7 +41,6 @@ router.post("/register", async (req, res) => {
   }
 
   try {
-    // Check if email already exists
     const [existing] = await pool.execute(
       "SELECT id FROM users WHERE email = ?",
       [email.toLowerCase().trim()]
@@ -53,10 +50,8 @@ router.post("/register", async (req, res) => {
       return res.status(409).json({ error: "An account with this email already exists." });
     }
 
-    // Hash password (salt rounds: 12)
     const hashedPassword = await bcrypt.hash(password, 12);
 
-    // Insert user
     const [result] = await pool.execute(
       "INSERT INTO users (name, email, password) VALUES (?, ?, ?)",
       [name.trim(), email.toLowerCase().trim(), hashedPassword]
@@ -76,7 +71,6 @@ router.post("/register", async (req, res) => {
   }
 });
 
-// ── POST /api/auth/login ──────────────────────────────────────────────────────
 
 router.post("/login", async (req, res) => {
   const { email, password } = req.body;
@@ -86,20 +80,17 @@ router.post("/login", async (req, res) => {
   }
 
   try {
-    // Fetch user by email
     const [rows] = await pool.execute(
       "SELECT id, name, email, password FROM users WHERE email = ?",
       [email.toLowerCase().trim()]
     );
 
-    // Use a generic message to avoid revealing whether the email exists
     if (rows.length === 0) {
       return res.status(401).json({ error: "Invalid email or password." });
     }
 
     const user = rows[0];
 
-    // Compare password
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(401).json({ error: "Invalid email or password." });
@@ -119,8 +110,6 @@ router.post("/login", async (req, res) => {
   }
 });
 
-// ── GET /api/auth/me ──────────────────────────────────────────────────────────
-// Returns the current user from the token — useful for session restoration
 
 router.get("/me", authenticate, async (req, res) => {
   try {
