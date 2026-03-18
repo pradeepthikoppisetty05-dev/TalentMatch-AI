@@ -1,6 +1,6 @@
 import { Router } from "express";
 import multer from "multer";
-import { generateFullReport } from "../services/pdfService.js";
+import { generateFullReport, generateComparisonReport } from "../services/pdfService.js";
 import { authenticate } from "../middleware/authenticate.js";
 
 const router = Router();
@@ -72,6 +72,34 @@ router.post("/report", authenticate, upload.single("resume"), async (req, res) =
   } catch (err) {
     console.error("[POST /api/report]", err?.message ?? err);
     return res.status(500).json({ error: "Failed to generate report. Please try again." });
+  }
+});
+
+router.post("/comparison", authenticate, async (req, res) => {
+  let candidates = [];
+  let jobTitle = "";
+ 
+  try {
+    candidates = req.body.candidates ?? [];
+    jobTitle   = (req.body.jobTitle ?? "").trim();
+  } catch {
+    return res.status(400).json({ error: "Invalid request body." });
+  }
+ 
+  if (!Array.isArray(candidates) || candidates.length < 1) {
+    return res.status(400).json({ error: "At least one analyzed candidate is required." });
+  }
+ 
+  try {
+    const pdfBuffer = await generateComparisonReport(candidates, jobTitle);
+ 
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="Candidate_Comparison.pdf"`);
+    res.setHeader("Content-Length", pdfBuffer.length);
+    return res.send(pdfBuffer);
+  } catch (err) {
+    console.error("[POST /api/comparison]", err?.message ?? err);
+    return res.status(500).json({ error: "Failed to generate comparison report." });
   }
 });
 

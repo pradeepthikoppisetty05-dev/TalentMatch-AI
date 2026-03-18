@@ -31,6 +31,11 @@ const C = {
   starFill:  "#f59e0b",
   starEmpty: "#cbd5e1",
 };
+function verdictColors(verdict) {
+  if (verdict === "Proceed") return { bg: "#d1fae5", bar: "#059669", text: "#065f46", label: "PROCEED" };
+  if (verdict === "Maybe")   return { bg: "#fef3c7", bar: "#d97706", text: "#92400e", label: "CONSIDER" };
+  return                            { bg: "#ffe4e6", bar: "#be123c", text: "#881337", label: "REJECT"   };
+}
 
 // Page constants
 const PW = 595.28;
@@ -131,6 +136,21 @@ function catColor(cat) {
   return                           { bg: C.slateBg,   text: C.muted   };
 }
 
+function categoryBar(doc, x, y, w, label, value, barColor) {
+  doc.font("Helvetica-Bold").fontSize(8).fillColor(C.muted)
+     .text(label, x, y, { width: 90, lineBreak: false });
+  const barX = x + 96;
+  const barW = w - 96 - 44;
+  // track
+  roundedRect(doc, barX, y + 1, barW, 8, 4, C.border);
+  // fill
+  const fill = Math.max(Math.round(barW * value / 100), 3);
+  roundedRect(doc, barX, y + 1, fill, 8, 4, barColor);
+  // value
+  doc.font("Helvetica-Bold").fontSize(8).fillColor(C.heading)
+     .text(value + "%", barX + barW + 6, y, { width: 36, align: "right", lineBreak: false });
+  return y + 16;
+}
 // MAIN REPORT BUILDER
 
 function buildReportBuffer(result, interviewQuestions, candidateName, jobTitle) {
@@ -191,6 +211,69 @@ function buildReportBuffer(result, interviewQuestions, candidateName, jobTitle) 
     roundedRect(doc, barX, barY, fillW, 8, 4, C.blue);
 
     let y = bannerY + 62;
+
+    // ── VERDICT + CATEGORY SCORES BLOCK ────────────────────────────────────
+    if (result.proceedVerdict) {
+      const vc = verdictColors(result.proceedVerdict);
+      const barHeight = 12;
+      const gap = 2;
+      const paddingTop = 10;
+      const paddingBottom = 8;
+
+      const totalBarsHeight = (4 * barHeight) + (3 * gap);
+      const blockH = paddingTop + totalBarsHeight + paddingBottom;
+      y = ensureSpace(doc, y, blockH + 8);
+
+      const halfW = Math.floor(CW / 2) - 4;
+      roundedRect(doc, ML, y, halfW, blockH, 6, vc.bg);
+      roundedRect(doc, ML, y, 4, blockH, 2, vc.bar);
+ 
+      doc.font("Helvetica-Bold").fontSize(8).fillColor(C.muted)
+         .text("HIRING VERDICT", ML + 12, y + 10, { characterSpacing: 0.5 });
+      doc.font("Helvetica-Bold").fontSize(20).fillColor(vc.text)
+         .text(vc.label, ML + 12, y + 22, { lineBreak: false });
+ 
+      // Category scores right
+      const csX = ML + halfW + 8;
+      const csW = CW - halfW - 8;
+      roundedRect(doc, csX, y, csW, blockH, 6, C.slateBg);
+      strokedRect(doc, csX, y, csW, blockH, C.border);
+ 
+      if (result.categoryScores) {
+        const cs = result.categoryScores;
+        const catDefs = [
+          { label: "Hard Skills", key: "hardSkills",  color: "#4f46e5" },
+          { label: "Soft Skills", key: "softSkills",  color: "#7c3aed" },
+          { label: "Experience",  key: "experience",  color: "#059669" },
+          { label: "Education",   key: "education",   color: "#d97706" },
+        ];
+        const innerPadding = 8;
+        const usableWidth = csW - (innerPadding * 2);
+        let cy = y + 10;
+        for (const { label, key, color } of catDefs) {
+          cy = categoryBar(doc, csX + innerPadding, cy, usableWidth, label, cs[key] ?? 0, color);
+        }
+      }
+ 
+      if (result.proceedReason) {
+        const reasonY = y + blockH + 6;
+        const reasonH = Math.max(
+          doc.heightOfString(result.proceedReason, { width: CW - 20, lineGap: 1.5 }) + 14,
+          28
+        );
+        y = ensureSpace(doc, reasonY - 6, reasonH + 10);
+        const actualY = y === 44 ? 44 : reasonY;
+        roundedRect(doc, ML, actualY, CW, reasonH, 5, vc.bg);
+        roundedRect(doc, ML, actualY, 3, reasonH, 2, vc.bar);
+        doc.font("Helvetica").fontSize(9).fillColor(vc.text)
+           .text(result.proceedReason, ML + 12, actualY + 7, {
+             width: CW - 24, lineGap: 1.5
+           });
+        y = actualY + reasonH + 10;
+      } else {
+        y = y + blockH + 10;
+      }
+    }
 
     y = ensureSpace(doc, y, 80);
     y = sectionHeader(doc, y, "Summary");
@@ -606,4 +689,233 @@ export async function generateFullReport(
   }
 
   return Buffer.from(await merged.save());
+}
+
+export async function generateComparisonReport(candidates, jobTitle = "") {
+  const analyzed = candidates.filter((c) => c.result);
+  if (!analyzed.length) throw new Error("No analyzed candidates to compare.");
+
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({
+      size: "A4",
+      layout: "landscape",
+      margins: { top: 0, bottom: 0, left: 0, right: 0 },
+      bufferPages: true,
+      info: { Title: "Candidate Comparison Report", Author: "TalentMatch AI" },
+    });
+
+    const chunks = [];
+    doc.on("data", (c) => chunks.push(c));
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
+
+    // Dimensions
+    const LW = 841.89;
+    const LH = 595.28;
+    const LML = 40;
+    const LMR = 40;
+    const LCW = LW - LML - LMR;
+
+    // HEADER 
+    const headerH = jobTitle ? 68 : 52;
+    filledRect(doc, 0, 0, LW, headerH, C.blue);
+
+    doc.save()
+      .moveTo(LW - 80, 0)
+      .lineTo(LW, 0)
+      .lineTo(LW, headerH)
+      .closePath()
+      .fill(C.blueDark)
+      .restore();
+
+    doc.font("Helvetica-Bold").fontSize(17).fillColor(C.white)
+      .text("Candidate Comparison Report", LML, 16, { width: LCW });
+
+    if (jobTitle) {
+      doc.font("Helvetica").fontSize(9.5).fillColor("rgba(255,255,255,0.70)")
+        .text(jobTitle, LML, 40, { width: LCW });
+    }
+
+    const CATEGORIES = [
+      { key: "hardSkills", label: "Hard Skills", color: "#4f46e5" },
+      { key: "softSkills", label: "Soft Skills", color: "#7c3aed" },
+      { key: "experience", label: "Experience", color: "#059669" },
+      { key: "education", label: "Education", color: "#d97706" },
+    ];
+
+    const ROWS = [
+      { key: "matchScore", label: "Overall Match" },
+      ...CATEGORIES.map((c) => ({
+        key: c.key,
+        label: c.label,
+        color: c.color,
+        isCategory: true,
+      })),
+      { key: "verdict", label: "Verdict" },
+    ];
+
+    const numCols = ROWS.length;
+    const nameW = 140;
+    const dataW = (LCW - nameW) / numCols;
+    const rowH = 32;
+    const headerRowH = 28;
+
+    let ty = headerH + 16;
+
+    // TABLE HEADER 
+    filledRect(doc, LML, ty, LCW, headerRowH, C.slateBar);
+    hLine(doc, LML, ty, LCW, C.border);
+    hLine(doc, LML, ty + headerRowH, LCW, C.border);
+
+    doc.font("Helvetica-Bold").fontSize(7.5).fillColor(C.muted)
+      .text("CANDIDATE", LML + 8, ty + 10, { width: nameW });
+
+    ROWS.forEach((row, i) => {
+      const cx = LML + nameW + i * dataW;
+      doc.font("Helvetica-Bold").fontSize(8).fillColor(C.heading)
+        .text(row.label.toUpperCase(), cx, ty + 10, {
+          width: dataW,
+          align: "center",
+        });
+    });
+
+    ty += headerRowH;
+
+    // DATA ROWS
+    analyzed.forEach((c, ri) => {
+      const bg = ri % 2 === 0 ? C.white : "#f9fafb";
+      filledRect(doc, LML, ty, LCW, rowH, bg);
+      hLine(doc, LML, ty + rowH, LCW, C.border, 0.4);
+
+      // Candidate Name
+      doc.font("Helvetica-Bold").fontSize(9).fillColor(C.heading)
+        .text(c.name, LML + 8, ty + (rowH - 11) / 2, {
+          width: nameW - 16,
+          lineBreak: false,
+        });
+
+      doc.save().lineWidth(0.4)
+        .moveTo(LML + nameW, ty)
+        .lineTo(LML + nameW, ty + rowH)
+        .stroke(C.border)
+        .restore();
+
+      ROWS.forEach((row, i) => {
+        const cx = LML + nameW + i * dataW;
+
+        if (i > 0) {
+          doc.save().lineWidth(0.4)
+            .moveTo(cx, ty)
+            .lineTo(cx, ty + rowH)
+            .stroke(C.border)
+            .restore();
+        }
+
+        const res = c.result;
+
+        if (row.key === "matchScore") {
+          const score = res.matchScore ?? 0;
+          const sc = score >= 80 ? C.emerald : score >= 60 ? C.amber : C.rose;
+
+          doc.font("Helvetica-Bold").fontSize(12).fillColor(sc)
+            .text(score + "%", cx, ty + (rowH - 12) / 2, {
+              width: dataW,
+              align: "center",
+            });
+
+        } else if (row.isCategory) {
+          const val = res.categoryScores?.[row.key] ?? 0;
+
+          const barW2 = dataW - 20;
+          const barX2 = cx + 10;
+          const barY2 = ty + (rowH / 2) - 4;
+
+          roundedRect(doc, barX2, barY2, barW2, 7, 3, C.border);
+
+          const fill2 = Math.max(Math.round(barW2 * val / 100), 2);
+          roundedRect(doc, barX2, barY2, fill2, 7, 3, row.color);
+
+          doc.font("Helvetica-Bold").fontSize(7).fillColor(C.heading)
+            .text(val + "%", cx, barY2 - 1, {
+              width: dataW,
+              align: "center",
+            });
+
+        } else if (row.key === "verdict") {
+          const vd = res.proceedVerdict;
+
+          if (!vd) {
+            doc.font("Helvetica").fontSize(9).fillColor(C.muted)
+              .text("—", cx, ty + (rowH - 11) / 2, {
+                width: dataW,
+                align: "center",
+              });
+            return;
+          }
+
+          const vc = verdictColors(vd);
+
+          const pillW = 60;
+          const pillX = cx + (dataW - pillW) / 2;
+          const pillY = ty + (rowH - 16) / 2;
+
+          roundedRect(doc, pillX, pillY, pillW, 16, 8, vc.bg);
+          roundedRect(doc, pillX, pillY, 3, 16, 2, vc.bar);
+
+          doc.font("Helvetica-Bold").fontSize(7).fillColor(vc.text)
+            .text(vc.label, pillX + 3, pillY + 4, {
+              width: pillW - 3,
+              align: "center",
+            });
+        }
+      });
+
+      ty += rowH;
+    });
+
+    hLine(doc, LML, ty, LCW, C.border);
+
+    // REASON SECTION 
+    const hasAnyReason = analyzed.some((c) => c.result?.proceedReason);
+
+    if (hasAnyReason) {
+      ty += 16;
+
+      doc.font("Helvetica-Bold").fontSize(8).fillColor(C.muted)
+        .text("HIRING VERDICT REASONS", LML, ty, { characterSpacing: 0.6 });
+
+      ty += 14;
+
+      analyzed.forEach((c) => {
+        if (!c.result?.proceedReason) return;
+
+        const vc = verdictColors(c.result.proceedVerdict ?? "Reject");
+
+        const textH = doc.heightOfString(c.result.proceedReason, {
+          width: LCW - 28,
+          lineGap: 1.5,
+        });
+
+        const boxH = textH + 20;
+
+        if (ty + boxH > LH - 40) return;
+
+        roundedRect(doc, LML, ty, LCW, boxH, 5, vc.bg);
+        roundedRect(doc, LML, ty, 3, boxH, 2, vc.bar);
+
+        doc.font("Helvetica-Bold").fontSize(8).fillColor(vc.text)
+          .text(c.name, LML + 10, ty + 6, { lineBreak: false });
+
+        doc.font("Helvetica").fontSize(9).fillColor(vc.text)
+          .text(c.result.proceedReason, LML + 10, ty + 16, {
+            width: LCW - 28,
+            lineGap: 1.5,
+          });
+
+        ty += boxH + 6;
+      });
+    }
+
+    doc.end();
+  });
 }

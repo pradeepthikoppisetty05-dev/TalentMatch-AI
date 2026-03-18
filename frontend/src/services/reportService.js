@@ -53,3 +53,38 @@ export async function downloadReport(
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+
+export async function downloadComparisonReport(candidates, jobTitle = "") {
+  const token = getToken();
+
+  const payload = {
+    candidates: candidates
+      .filter((c) => c.result)
+      .map((c) => ({ name: c.name, result: c.result })),
+    jobTitle,
+  };
+ 
+  const response = await fetch(`${API_BASE}/api/comparison`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(payload),
+  });
+ 
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error ?? `Comparison report failed (${response.status})`);
+  }
+ 
+  const blob = await response.blob();
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href     = url;
+  a.download = "Candidate_Comparison.pdf";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
