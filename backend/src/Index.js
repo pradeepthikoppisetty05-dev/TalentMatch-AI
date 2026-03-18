@@ -14,6 +14,7 @@ if (missing.length) {
   process.exit(1);
 }
 
+
 const app = express();
 const PORT = Number(process.env.PORT) || 3001;
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "http://localhost:5173";
@@ -24,8 +25,11 @@ app.use(
     origin: ALLOWED_ORIGIN,
     methods: ["GET", "POST", "PUT", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
+    credentails: true,
   })
 );
+
+app.options("*", cors());
 app.use(express.json({ limit: "2mb" }));
 
 // Routes
